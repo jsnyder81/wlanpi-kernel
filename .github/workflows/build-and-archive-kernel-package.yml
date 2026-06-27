@@ -3,7 +3,7 @@ name: Build and archive WLAN Pi kernel package
 on:
   push:
     branches:
-      - 6.12-bookworm
+      - 7.0-bookworm
     paths:
       - 'patches/**'
       - 'wlanpi_*_defconfig'
