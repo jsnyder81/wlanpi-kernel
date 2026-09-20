@@ -76,15 +76,31 @@ jobs:
               bc libelf-dev libudev-dev libpci-dev libiberty-dev autoconf automake libtool \
               libpython3-dev crossbuild-essential-arm64 dpkg-dev gcc-aarch64-linux-gnu
 
-      # Step 5: Cache kernel build directory
+      # Step 5a: Resolve upstream kernel commit so the build cache below is
+      # keyed to it. Without this, the cache only keys off build-kernel.sh's
+      # hash (which rarely changes), so a stale compiled linux/ tree
+      # (.o/.ko/.cmd files, not just the git checkout) gets reused across
+      # runs even after upstream rpi-7.1.y has moved, and incremental
+      # `make modules` can silently relink an old .ko instead of rebuilding
+      # it against the newly checked-out source.
+      - name: Resolve upstream kernel commit
+        id: kernel-rev
+        run: |
+          sha=$(git ls-remote --heads https://github.com/raspberrypi/linux.git rpi-7.1.y | cut -f1)
+          echo "sha=$sha" >> "$GITHUB_OUTPUT"
+
+      # Step 5b: Cache kernel build directory
       - name: Cache kernel build directory
         uses: actions/cache@v6
         with:
           path: linux
-          key: ${{ runner.os }}-kernel-${{ env.BUILD_TARGET }}-${{ hashFiles('**/build-kernel.sh') }}
-          restore-keys: |
-            ${{ runner.os }}-kernel-${{ env.BUILD_TARGET }}-
-            ${{ runner.os }}-kernel-
+          key: ${{ runner.os }}-kernel-${{ env.BUILD_TARGET }}-${{ hashFiles('**/build-kernel.sh') }}-${{ steps.kernel-rev.outputs.sha }}
+          # No restore-keys fallback here on purpose: a prefix-matched
+          # fallback would restore the previous upstream commit's compiled
+          # linux/ tree whenever rpi-7.1.y moves, which is the exact
+          # stale-object problem this cache key is meant to prevent. A miss
+          # here should fall through to build-kernel.sh's fresh --depth=1
+          # clone instead.
 
       # Step 6: Verify Custom Config Files Presence
       - name: Verify Custom Config Files Presence
