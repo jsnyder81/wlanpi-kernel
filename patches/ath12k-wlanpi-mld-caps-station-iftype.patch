@@ -17,17 +17,17 @@ EML Capabilities, even though the firmware reports
 single_chip_mlo_support = 1. The AP then keeps all traffic on a single
 link.
 
-Write the capabilities to the STATION entry instead, and clean up two
-fields of the firmware's mld_cap (0x0042 on WLAN.HMT.1.1.c7-00108):
+Write the capabilities to the STATION entry instead, and cap one field
+of the firmware's mld_cap (0x0042 on WLAN.HMT.1.1.c7-00108): Maximum
+Number of Simultaneous Links is encoded as the link count minus one.
+The firmware's 2 claims three links, but QMI reports num_link 2. Cap it
+at 1 (two simultaneous links).
 
-- TID-To-Link Mapping Negotiation Support is 2, a reserved value.
-  ath12k does not implement can_neg_ttlm, so mac80211 rejects every
-  negotiation request anyway. Clear the field.
-- Maximum Number of Simultaneous Links is encoded as the link count
-  minus one. The firmware's 2 claims three links, but QMI reports
-  num_link 2. Cap it at 1 (two simultaneous links).
+TID-To-Link Mapping Negotiation Support is passed through as the
+firmware reports it (2). ath12k does not implement can_neg_ttlm, so
+mac80211 still rejects any negotiation request.
 
-The resulting station capabilities are MLD 0x0001 and EML 0x2037
+The resulting station capabilities are MLD 0x0041 and EML 0x2037
 (EMLSR supported, no EMLMR). The client can use both links at once,
 and ath12k passes the AP's EMLSR capability to firmware in the peer
 assoc ML params, so firmware can fall back to EMLSR when the AP
@@ -45,25 +45,19 @@ Local WLAN Pi patch (not from ath-next). Re-check on every kernel bump:
 drop it once upstream writes the station entry.
 
 ---
- drivers/net/wireless/ath/ath12k/mac.c | 19 +++++++++++++++++--
- 1 file changed, 17 insertions(+), 2 deletions(-)
+ drivers/net/wireless/ath/ath12k/mac.c | 13 +++++++++++--
+ 1 file changed, 11 insertions(+), 2 deletions(-)
 
 diff --git a/drivers/net/wireless/ath/ath12k/mac.c b/drivers/net/wireless/ath/ath12k/mac.c
 --- a/drivers/net/wireless/ath/ath12k/mac.c
 +++ b/drivers/net/wireless/ath/ath12k/mac.c
-@@ -14938,8 +14938,23 @@
+@@ -14938,8 +14938,17 @@
  	 * WMI_SERVICE_READY_EXT2_EVENT if single_chip_mlo_supp is set.
  	 */
  	if (ab->ag->mlo_capable) {
 -		ath12k_iftypes_ext_capa[2].eml_capabilities = cap->eml_cap;
 -		ath12k_iftypes_ext_capa[2].mld_capa_and_ops = cap->mld_cap;
 +		u16 mld_cap = cap->mld_cap;
-+
-+		/* Firmware reports the reserved TID-to-link mapping value (2),
-+		 * and ath12k has no can_neg_ttlm, so mac80211 rejects every
-+		 * negotiation anyway: advertise no support.
-+		 */
-+		mld_cap &= ~IEEE80211_MLD_CAP_OP_TID_TO_LINK_MAP_NEG_SUPP;
 +
 +		/* The field is the link count minus one. Firmware reports 2
 +		 * (three links) but QMI reports num_link 2, so cap it at 1.
